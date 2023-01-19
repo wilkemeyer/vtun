@@ -54,7 +54,8 @@
 struct vtun_opts vtun;
 struct vtun_host default_host;
 
-static void write_pid(void);
+
+void write_pid(char *, char *);
 static void reread_config(int sig);
 static void usage(void);
 
@@ -235,7 +236,7 @@ int main(int argc, char *argv[], char *env[])
 
 	if( vtun.svr_type == VTUN_STAND_ALONE ){
 #ifdef HAVE_WORKING_FORK
-	   write_pid();
+	   write_pid("server", NULL);
 #else
 	   vtun_syslog(LOG_ERR,"Standalone server is not supported. Use -i");
 	   exit(1);
@@ -245,6 +246,7 @@ int main(int argc, char *argv[], char *env[])
 	server(sock);
      } else {
         init_title(argc,argv,env,"vtund[c]: ");
+        write_pid("server", NULL);
         client(host);
      }
 
@@ -255,15 +257,29 @@ int main(int argc, char *argv[], char *env[])
 
 /*
  * Very simple PID file creation function. Used by server.
- * Overrides existing file.
+ * Overrides existing file. Optionally adds session name and host name to the
+ * pidfile name (this naming is very confusing, as the session is referred as
+ * host most of the time)
  */
-static void write_pid(void)
+void write_pid(char *session, char *host)
 {
+     char fn[1024];
      FILE *f;
 
-     if( !(f=fopen(VTUN_PID_FILE,"w")) ){
-        vtun_syslog(LOG_ERR,"Can't write PID file %s", VTUN_PID_FILE);
-        return;
+     if(session != NULL && host != NULL) {
+     snprintf(fn, sizeof(fn), "%s/vtund.%s-%s.pid", VTUN_PID_DIR, session,
+             host);
+     } else if(session != NULL) {
+     snprintf(fn, sizeof(fn), "%s/vtund.%s.pid", VTUN_PID_DIR, session);
+     } else {
+          snprintf(fn, sizeof(fn), "%s/vtund.pid", VTUN_PID_DIR);
+     }
+     /* Make sure the PID file is not there before opening it for writing. */
+     unlink(fn);
+
+     if( !(f = fopen(fn, "w")) ) {
+          syslog(LOG_ERR, "Can't write PID file %s: %s", fn, strerror(errno));
+          return;
      }
 
      fprintf(f,"%d",(int)getpid());
